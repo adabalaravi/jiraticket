@@ -18,19 +18,19 @@ pipeline {
 
    stage('Check Tools') {
     steps {
-      powershell '''
-          # Refresh PATH for Node, npm, Python, and Snyk
-          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
-                      [System.Environment]::GetEnvironmentVariable("Path","User") + ";" +
-                      "$env:APPDATA\\npm"
+        powershell '''
+            # Reload PATH for Node, npm, Python, and Snyk
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
+                         [System.Environment]::GetEnvironmentVariable("Path","User") + ";" +
+                         "$env:APPDATA\\npm"
 
-          node --version
-          npm --version
-          snyk --version
-          python --version
-      '''
-     }
-   }
+            node --version
+            npm --version
+            snyk --version
+            python --version
+        '''
+    }
+  }
 
     stage('Snyk Auth') {
       steps {
@@ -42,17 +42,26 @@ pipeline {
       }
     }
 
-    stage('Snyk Scans') {
-      steps {
-        script {
-          if (isUnix()) {
-            sh 'snyk code test --sarif --sarif-file-output=snyk-code.sarif || true; snyk test --file=requirements.txt --json-file-output=snyk-oss.json || true'
-          } else {
-            powershell 'snyk code test --sarif --sarif-file-output=snyk-code.sarif; if ($LASTEXITCODE -ne 0) { Write-Host "Continuing..." }; snyk test --file=requirements.txt --json-file-output=snyk-oss.json; if ($LASTEXITCODE -ne 0) { Write-Host "Continuing..." }'
-          }
+    stage('Snyk Scan') {
+        steps {
+            withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
+                powershell '''
+                    # Reload PATH for Snyk
+                    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
+                                [System.Environment]::GetEnvironmentVariable("Path","User") + ";" +
+                                "$env:APPDATA\\npm"
+
+                    snyk auth $env:SNYK_TOKEN
+
+                    snyk code test --sarif --sarif-file-output=snyk-code.sarif
+                    if ($LASTEXITCODE -ne 0) { Write-Host "Continuing..." }
+
+                    snyk test --file=requirements.txt --json-file-output=snyk-oss.json
+                    if ($LASTEXITCODE -ne 0) { Write-Host "Continuing..." }
+                '''
+            }
         }
-      }
-    }
+   }
 
     stage('Create/Update JIRA Ticket if Needed') {
       steps {
