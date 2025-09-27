@@ -27,7 +27,7 @@ pipeline {
             node --version
             npm --version
             snyk --version
-            python --version
+            & "C:\\Users\\DELL\\AppData\\Local\\Programs\\Python\\Python312\\python.exe" --version   # ✅ Use full path to Python
         '''
     }
   }
