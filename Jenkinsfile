@@ -16,17 +16,20 @@ pipeline {
       steps { checkout scm }
     }
 
-    stage('Tool Check') {
-      steps {
-        script {
-          if (isUnix()) {
-            sh 'node --version; npm --version; snyk --version || { echo "Install Snyk"; exit 1; }; python3 --version'
-          } else {
-            powershell 'node --version; npm --version; snyk --version; python --version'
-          }
-        }
-      }
-    }
+   stage('Check Tools') {
+    steps {
+        powershell '''
+            # Refresh PATH so Jenkins service can see Node/Python
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
+                         [System.Environment]::GetEnvironmentVariable("Path","User")
+
+            node --version
+            npm --version
+            snyk --version
+            python --version
+        '''
+     }
+   }
 
     stage('Snyk Auth') {
       steps {
