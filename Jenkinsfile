@@ -18,16 +18,17 @@ pipeline {
 
    stage('Check Tools') {
     steps {
-        powershell '''
-            # Refresh PATH so Jenkins service can see Node/Python
-            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
-                         [System.Environment]::GetEnvironmentVariable("Path","User")
+      powershell '''
+          # Refresh PATH for Node, npm, Python, and Snyk
+          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" +
+                      [System.Environment]::GetEnvironmentVariable("Path","User") + ";" +
+                      "$env:APPDATA\\npm"
 
-            node --version
-            npm --version
-            snyk --version
-            python --version
-        '''
+          node --version
+          npm --version
+          snyk --version
+          python --version
+      '''
      }
    }
 
