@@ -63,9 +63,9 @@ pipeline {
               '''
             } else {
               powershell '''
-                python -m venv .venv
-                .\.venv\Scripts\pip install -r tools\requirements.txt
-                .\.venv\Scripts\python tools\create_jira_issue.py --oss snyk-oss.json --sarif snyk-code.sarif --threshold $env:SEVERITY_THRESHOLD --jira-url $env:JIRA_URL --jira-project $env:JIRA_PROJECT_KEY --jira-issue-type $env:JIRA_ISSUE_TYPE --build-url "$env:BUILD_URL" --branch "$env:BRANCH_NAME" --commit "$env:GIT_COMMIT" --repo "$env:JOB_NAME"
+                  python -m venv .venv
+                  ./.venv/Scripts/pip install -r tools/requirements.txt
+                  ./.venv/Scripts/python tools/create_jira_issue.py --oss snyk-oss.json --sarif snyk-code.sarif --threshold $env:SEVERITY_THRESHOLD --jira-url $env:JIRA_URL --jira-project $env:JIRA_PROJECT_KEY --jira-issue-type $env:JIRA_ISSUE_TYPE --build-url "$env:BUILD_URL" --branch "$env:BRANCH_NAME" --commit "$env:GIT_COMMIT" --repo "$env:JOB_NAME"
               '''
             }
           }
