@@ -5,7 +5,7 @@ pipeline {
   environment {
     JIRA_URL = 'https://ravindradevops25.atlassian.net'
     JIRA_PROJECT_KEY = 'SCRUM'
-    JIRA_ISSUE_TYPE = 'Task'
+    JIRA_ISSUE_TYPE = 'Bug'
     SEVERITY_THRESHOLD = 'high'
   }
 
@@ -118,10 +118,8 @@ pipeline {
         }
       }
     }
-
-
-   stage('Create JIRA Ticket') {
-    steps {
+    stage('Create JIRA Ticket') {
+      steps {
         withCredentials([usernamePassword(credentialsId: 'jira-credentials', usernameVariable: 'JIRA_USER', passwordVariable: 'JIRA_TOKEN')]) {
             powershell '''
                 Write-Host "[DEBUG] Creating JIRA ticket..."
@@ -176,11 +174,8 @@ pipeline {
                     Write-Host "Response Body: $responseBody"
                 }
             '''
-        }
-    }
-}
-
-
-
+            }
+         }
+     }
   }
 }
