@@ -15,15 +15,14 @@ import argparse
 import base64
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
 import requests
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 
 SEV_ORDER = ["low", "medium", "high", "critical"]
-
-
 
 # ------------------ Helpers ------------------ #
 def validate_jira_url(jira_url: str) -> str:
@@ -38,24 +37,36 @@ def validate_jira_url(jira_url: str) -> str:
         raise ValueError(f"Invalid JIRA URL scheme: {parsed.scheme}")
     if not parsed.netloc:
         raise ValueError("JIRA URL must include a hostname")
-    # Enforce domain restriction (adjust if using self-hosted JIRA)
-    if not parsed.netloc.endswith("atlassian.net"):
+    # Enforce strict Atlassian domain pattern
+    if not re.fullmatch(r"[a-zA-Z0-9-]+\.atlassian\.net", parsed.netloc):
         raise ValueError(f"JIRA URL {jira_url} not allowed – must be Atlassian-hosted")
     return jira_url.rstrip("/")
 
 
-# ------------------ Helpers ------------------ #
+def safe_join(base: str, path: str) -> str:
+    """Safely join base URL with path, preventing domain escape."""
+    joined = urljoin(base + "/", path.lstrip("/"))
+    parsed_base = urlparse(base)
+    parsed_joined = urlparse(joined)
+    if parsed_base.netloc != parsed_joined.netloc:
+        raise ValueError("URL join resulted in domain escape")
+    return joined
+
+
 def sev_index(sev: str) -> int:
     return SEV_ORDER.index(sev.lower()) if sev and sev.lower() in SEV_ORDER else 0
 
+
 def meets_threshold(sev: str, threshold: str) -> bool:
     return sev_index(sev) >= sev_index(threshold)
+
 
 def count_by_severity(findings: List[Dict[str, Any]]) -> Dict[str, int]:
     counts = {sev: 0 for sev in SEV_ORDER}
     for f in findings:
         counts[f["severity"]] += 1
     return counts
+
 
 def summarize(findings: List[Dict[str, Any]], limit: int = 10) -> str:
     lines: List[str] = []
@@ -74,6 +85,7 @@ def summarize(findings: List[Dict[str, Any]], limit: int = 10) -> str:
     if extra > 0:
         lines.append(f"... and {extra} more.")
     return "\n".join(lines)
+
 
 def load_json(path: Path) -> Any:
     if not path.exists():
@@ -101,6 +113,7 @@ def parse_oss(data: Dict[str, Any], threshold: str) -> List[Dict[str, Any]]:
             "id": v.get("id"),
         })
     return findings
+
 
 def parse_sarif(sarif: Dict[str, Any], threshold: str) -> List[Dict[str, Any]]:
     findings: List[Dict[str, Any]] = []
@@ -143,20 +156,24 @@ def jira_headers(email: str, token: str) -> Dict[str, str]:
     auth = base64.b64encode(f"{email}:{token}".encode()).decode()
     return {"Authorization": f"Basic {auth}", "Accept": "application/json", "Content-Type": "application/json"}
 
+
 def jira_search(url: str, headers: Dict[str, str], jql: str) -> List[Dict[str, Any]]:
-    resp = requests.get(f"{url}/rest/api/3/search", headers={"Authorization": headers["Authorization"], "Accept": "application/json"}, params={"jql": jql, "maxResults": 5}, timeout=30)
+    resp = requests.get(safe_join(url, "/rest/api/3/search"), headers={"Authorization": headers["Authorization"], "Accept": "application/json"}, params={"jql": jql, "maxResults": 5}, timeout=30)
     resp.raise_for_status()
     return resp.json().get("issues", [])
 
+
 def jira_create_issue(url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> Dict[str, Any]:
-    resp = requests.post(f"{url}/rest/api/3/issue", headers=headers, data=json.dumps(payload), timeout=30)
+    resp = requests.post(safe_join(url, "/rest/api/3/issue"), headers=headers, data=json.dumps(payload), timeout=30)
     resp.raise_for_status()
     return resp.json()
 
+
 def jira_add_comment(url: str, headers: Dict[str, str], key: str, body: str) -> None:
     h = {"Authorization": headers["Authorization"], "Accept": "application/json", "Content-Type": "application/json"}
-    resp = requests.post(f"{url}/rest/api/3/issue/{key}/comment", headers=h, data=json.dumps({"body": body}), timeout=30)
+    resp = requests.post(safe_join(url, f"/rest/api/3/issue/{key}/comment"), headers=h, data=json.dumps({"body": body}), timeout=30)
     resp.raise_for_status()
+
 
 def jira_attach(url: str, email: str, token: str, key: str, files: List[Path]) -> None:
     auth = base64.b64encode(f"{email}:{token}".encode()).decode()
@@ -165,7 +182,7 @@ def jira_attach(url: str, email: str, token: str, key: str, files: List[Path]) -
         if not p.exists():
             continue
         with p.open("rb") as f:
-            resp = requests.post(f"{url}/rest/api/3/issue/{key}/attachments", headers=h, files={"file": (p.name, f)}, timeout=60)
+            resp = requests.post(safe_join(url, f"/rest/api/3/issue/{key}/attachments"), headers=h, files={"file": (p.name, f)}, timeout=60)
             resp.raise_for_status()
 
 # ------------------ Main ------------------ #
