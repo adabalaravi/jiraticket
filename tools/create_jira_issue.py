@@ -162,9 +162,12 @@ def jira_headers(email: str, token: str) -> Dict[str, str]:
 
 
 def jira_search(url: str, headers: Dict[str, str], jql: str) -> List[Dict[str, Any]]:
-    resp = requests.get(safe_join(url, "/rest/api/3/search/jql"), headers={"Authorization": headers["Authorization"], "Accept": "application/json"}, params={"jql": jql, "maxResults": 5}, timeout=30)
+    body = {"jql": jql, "maxResults": 5}
+    h = {"Authorization": headers["Authorization"], "Accept": "application/json", "Content-Type": "application/json"}
+    resp = requests.post(safe_join(url, "/rest/api/3/search/jql"), headers=h, json=body, timeout=30)
     resp.raise_for_status()
     return resp.json().get("issues", [])
+
 
 
 def jira_create_issue(url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -256,15 +259,23 @@ def main():
         sys.exit(2)
 
     payload = {
-        "fields": {
-            "project": {"key": args.jira_project},
-            "summary": summary,
-            "description": description,
-            "issuetype": {"name": args.jira_issue_type},
-            "priority": {"name": "High"},
-            "labels": ["snyk", "security", "ci-failure"],
+      "fields": {
+          "project": {"key": args.jira_project},
+          "summary": summary,
+          "description": {
+              "type": "doc",
+              "version": 1,
+              "content": [
+                  {"type": "paragraph", "content": [{"type": "text", "text": description}]}
+              ],
+          },
+          "issuetype": {"name": args.jira_issue_type},
+          # Drop these if your project doesn’t support them
+          "priority": {"name": "High"},
+          "labels": ["snyk", "security", "ci-failure"],
         }
-    }
+      }
+
 
     created = jira_create_issue(args.jira_url, headers, payload)
     key = created.get("key")
