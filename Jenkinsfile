@@ -71,111 +71,55 @@ pipeline {
     stage('Snyk Scan') {
       steps {
         powershell '''
-          Write-Output "[DEBUG] Starting Snyk scan..."
-          $env:Path = "C:\\Program Files\\nodejs;" + $env:Path
-          $snykPath = "C:\\Users\\DELL\\AppData\\Roaming\\npm\\snyk.cmd"
-          $pythonPath = "C:\\Users\\DELL\\AppData\\Local\\Programs\\Python\\Python312\\python.exe"
-
-          if (Test-Path "requirements.txt") {
-            Write-Output "[DEBUG] Found requirements.txt, running Python Snyk scan..."
-            & $snykPath test --file=requirements.txt --package-manager=pip --command="$pythonPath" --json | Out-File -FilePath snyk-results.json -Encoding UTF8
-            if ($LASTEXITCODE -ne 0) {
-              Write-Output "[DEBUG] Snyk exited with code $LASTEXITCODE (vulnerabilities found). Forcing success so pipeline continues..."
-              exit 0
-            }
-          } else {
-            Write-Output "[DEBUG] No requirements.txt found, running generic Snyk scan..."
-            & $snykPath test --json | Out-File -FilePath snyk-results.json -Encoding UTF8
-          }
-
-          Write-Output "[DEBUG] Snyk scan completed. Results saved to snyk-results.json"
-          Write-Output "[DEBUG] Printing snyk-results.json contents:"
-          Get-Content snyk-results.json | Write-Output
+          snyk code test --sarif --sarif-file-output=snyk-code.sarif
+          if ($LASTEXITCODE -ne 0) { Write-Host "Continuing..." }
+          snyk test --file=requirements.txt --json-file-output=snyk-oss.json
+          if ($LASTEXITCODE -ne 0) { Write-Host "Continuing..." }
         '''
       }
     }
 
-    stage('Parse Snyk Results') {
+    stage('Create/Update JIRA Ticket if Needed') {
       steps {
-        script {
-          echo "[DEBUG] Parsing snyk-results.json safely"
-
-          def rawJson = readFile(file: 'snyk-results.json', encoding: 'UTF-8')
-          def jsonText = rawJson.replaceAll('^\\uFEFF', '') // strip BOM
-          def parsed = new groovy.json.JsonSlurper().parseText(jsonText)
-
-          if (!parsed.vulnerabilities) {
-            echo "[DEBUG] No vulnerabilities found"
-            env.BUILD_STATUS = 'STABLE'
-          } else {
-            def highVulns = parsed.vulnerabilities.findAll { it.severity in ['high', 'critical'] }
-            echo "[DEBUG] Found ${parsed.vulnerabilities.size()} total vulnerabilities, ${highVulns.size()} are high/critical"
-
-            env.BUILD_STATUS = highVulns.size() > 0 ? 'UNSTABLE' : 'STABLE'
+        withCredentials([usernamePassword(credentialsId: 'jira-cloud', usernameVariable: 'JIRA_EMAIL', passwordVariable: 'JIRA_API_TOKEN')]) {
+          script {
+            if (isUnix()) {
+              sh '''
+                python3 -m venv .venv || python -m venv .venv
+                . .venv/bin/activate
+                pip install -r tools/requirements.txt
+                python tools/create_jira_issue.py \
+                  --oss snyk-oss.json \
+                  --sarif snyk-code.sarif \
+                  --threshold "$SEVERITY_THRESHOLD" \
+                  --jira-url "$JIRA_URL" \
+                  --jira-project "$JIRA_PROJECT_KEY" \
+                  --jira-issue-type "$JIRA_ISSUE_TYPE" \
+                  --build-url "$BUILD_URL" \
+                  --branch "$BRANCH_NAME" \
+                  --commit "$GIT_COMMIT" \
+                  --repo "$JOB_NAME"
+              '''
+            } else {
+              powershell '''
+                python -m venv .venv
+                .\\.venv\\Scripts\\pip install -r tools\\requirements.txt
+                .\\.venv\\Scripts\\python tools\\create_jira_issue.py `
+                  --oss snyk-oss.json `
+                  --sarif snyk-code.sarif `
+                  --threshold $env:SEVERITY_THRESHOLD `
+                  --jira-url $env:JIRA_URL `
+                  --jira-project $env:JIRA_PROJECT_KEY `
+                  --jira-issue-type $env:JIRA_ISSUE_TYPE `
+                  --build-url "$env:BUILD_URL" `
+                  --branch "$env:BRANCH_NAME" `
+                  --commit "$env:GIT_COMMIT" `
+                  --repo "$env:JOB_NAME"
+              '''
+            }
           }
-
-          echo "[DEBUG] Build status set to: ${env.BUILD_STATUS}"
         }
       }
     }
-    stage('Create JIRA Ticket') {
-      steps {
-        withCredentials([usernamePassword(credentialsId: 'jira-credentials', usernameVariable: 'JIRA_USER', passwordVariable: 'JIRA_TOKEN')]) {
-            powershell '''
-                Write-Host "[DEBUG] Creating JIRA ticket..."
-
-                # Build Basic Auth header
-                $pair = "$env:JIRA_USER`:$env:JIRA_TOKEN"
-                $bytes = [System.Text.Encoding]::UTF8.GetBytes($pair)
-                $encodedAuth = [Convert]::ToBase64String($bytes)
-
-                $summary   = "Snyk Vulnerabilities found in build $($env:BUILD_NUMBER)"
-                $project   = $env:JIRA_PROJECT_KEY
-                $issueType = $env:JIRA_ISSUE_TYPE
-                $priority  = "High"
-
-                $description = @{
-                    type = "doc"
-                    version = 1
-                    content = @(
-                        @{
-                            type = "paragraph"
-                            content = @(
-                                @{
-                                    type = "text"
-                                    text = "Snyk scan detected vulnerabilities. Please review."
-                                }
-                            )
-                        }
-                    )
-                }
-                $payload = @{
-                    fields = @{
-                        project     = @{ key = $project }
-                        summary     = $summary
-                        description = $description
-                        issuetype   = @{ name = $issueType }
-                        priority    = @{ name = $priority }
-                    }
-                } | ConvertTo-Json -Depth 10
-
-                Write-Host "[DEBUG] Final payload: $payload"
-                try {
-                    Invoke-RestMethod -Uri "$env:JIRA_URL/rest/api/3/issue" -Method Post -Headers @{
-                        Authorization = "Basic $encodedAuth"
-                        "Content-Type" = "application/json"
-                    } -Body $payload
-                } catch {
-                    Write-Host "Jira API error:" $_.Exception.Response.StatusDescription
-                    $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
-                    $reader.BaseStream.Position = 0
-                    $reader.DiscardBufferedData()
-                    $responseBody = $reader.ReadToEnd()
-                    Write-Host "Response Body: $responseBody"
-                }
-            '''
-            }
-         }
-     }
   }
 }

@@ -10,7 +10,7 @@ DO NOT run this with untrusted input or in production.
 Usage:
   - Inspect the file and run specific functions for testing in a controlled environment.
   - The script can also dump each example into a separate file if you want.
-\"\"\"
+
 
 import sys
 import subprocess
@@ -115,3 +115,104 @@ def dump_examples(out_dir: str = \"./examples_out\"):
     os.makedirs(out_dir, exist_ok=True)
     examples = {
         \"vuln_eval.py\": \"\"\"# vuln_eval.py\nimport sys\nuser_expr = sys.argv[1] if len(sys.argv) > 1 else '1+1'\nresult = eval(user_expr)\nprint('Result:', result)\n\"\"\",\n        \"vuln_ssrf.py\": \"\"\"# vuln_ssrf.py\nimport requests\nimport sys\nprint(requests.get(sys.argv[1]).text)\n\"\"\",\n        \"vuln_command_injection.py\": \"\"\"# vuln_command_injection.py\nimport subprocess, sys\ncmd = f\"ls -la {sys.argv[1]}\"\nsubprocess.check_output(cmd, shell=True)\n\"\"\",\n        \"vuln_pickle_deser.py\": \"\"\"# vuln_pickle_deser.py\nimport pickle\nwith open('data.pickle','rb') as f:\n    print(pickle.load(f))\n\"\"\",\n        \"vuln_sql_injection.py\": \"\"\"# vuln_sql_injection.py\nimport sqlite3, sys\nconn = sqlite3.connect(':memory:')\nconn.execute(\"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, username TEXT)\")\nconn.execute(\"INSERT INTO users (name, username) VALUES ('Alice', 'alice')\")\nquery = f\"SELECT id, name FROM users WHERE username = '{sys.argv[1]}'\"\nprint(conn.execute(query).fetchall())\n\"\"\",\n        \"vuln_hardcoded_creds.py\": \"\"\"# vuln_hardcoded_creds.py\nAPI_KEY = 'AKIA...FAKE...SECRET'\nprint('Using', API_KEY)\n\"\"\",\n        \"vuln_insecure_tls.py\": \"\"\"# vuln_insecure_tls.py\nimport requests\nprint(requests.get('https://example.com', verify=False).status_code)\n\"\"\",\n    }\n    for fname, txt in examples.items():\n        with open(os.path.join(out_dir, fname), 'w', encoding='utf-8') as f:\n            f.write(txt)\n    print(f\"Wrote {len(examples)} example files to {out_dir}\")\n\nif __name__ == '__main__':\n    # Simple CLI to call examples or dump files\n    if len(sys.argv) == 1:\n        print(\"snyk_vuln_examples.py - contains multiple intentionally vulnerable examples.\")\n        print(\"Usage: python snyk_vuln_examples.py dump   -> write separate example files into ./examples_out\")\n        print(\"       python snyk_vuln_examples.py run <name> [args...]  -> run a named example\")\n        print(\"Available examples: vuln_eval, vuln_ssrf, vuln_command_injection, vuln_pickle_deser, vuln_sql_injection, vuln_hardcoded_creds, vuln_insecure_tls\")\n        sys.exit(0)\n    cmd = sys.argv[1]\n    if cmd == 'dump':\n        out = sys.argv[2] if len(sys.argv) > 2 else './examples_out'\n        dump_examples(out)\n    elif cmd == 'run':\n        name = sys.argv[2] if len(sys.argv) > 2 else ''\n        if name == 'vuln_eval':\n            vuln_eval(sys.argv[3] if len(sys.argv) > 3 else '1+1')\n        elif name == 'vuln_ssrf':\n            vuln_ssrf(sys.argv[3])\n        elif name == 'vuln_command_injection':\n            vuln_command_injection(sys.argv[3])\n        elif name == 'vuln_pickle_deser':\n            vuln_pickle_deser(sys.argv[3])\n        elif name == 'vuln_sql_injection':\n            vuln_sql_injection(sys.argv[3])\n        elif name == 'vuln_hardcoded_creds':\n            vuln_hardcoded_creds()\n        elif name == 'vuln_insecure_tls':\n            vuln_insecure_tls()\n        else:\n            print('Unknown example:', name)\n            sys.exit(1)\n    else:\n        print('Unknown command')\n        sys.exit(1)\n
+
+\"\"\"
+
+"""
+main.py
+A small Python CLI utility that fetches and validates JSON from a remote API
+and prints a safe summary. Designed with Snyk scans in mind:
+  - Uses only one external dependency: requests (pinned to a safe version)
+  - No use of eval/exec, pickle, subprocess, or shell calls
+  - No hard-coded credentials or secrets
+  - Proper error handling and input validation
+
+Usage:
+  python main.py --url https://example.com/data.json
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+from typing import Any, Dict
+
+import requests  # external dependency
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+logger = logging.getLogger(__name__)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Fetch, validate, and summarize a JSON record from an API")
+    parser.add_argument("--url", "-u", required=True, help="URL to fetch JSON data from")
+    return parser.parse_args()
+
+
+def fetch_json(url: str) -> Dict[str, Any]:
+    """Fetch JSON from a remote API and ensure it's a dict at the top level."""
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+    data = response.json()
+
+    if not isinstance(data, dict):
+        logger.error("JSON top-level value must be an object/dictionary")
+        raise ValueError("JSON top-level must be an object")
+
+    return data
+
+
+def validate_record(record: Dict[str, Any]) -> None:
+    """Perform minimal validation on the record. Raises ValueError if invalid."""
+    required_fields = {
+        "id": int,
+        "name": str,
+        "email": str,
+        "metadata": dict,
+    }
+
+    for field, field_type in required_fields.items():
+        if field not in record:
+            raise ValueError(f"Missing required field: {field}")
+        if not isinstance(record[field], field_type):
+            raise ValueError(f"Field '{field}' must be of type {field_type.__name__}")
+
+    if "script" in record or "exec" in record:
+        raise ValueError("Record contains disallowed keys")
+
+
+def summarize_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    summary = {
+        "id": record.get("id"),
+        "name": record.get("name"),
+        "email_domain": _extract_email_domain(record.get("email")),
+        "metadata_keys": sorted(record.get("metadata", {}).keys()),
+    }
+    return summary
+
+
+def _extract_email_domain(email: str | None) -> str | None:
+    if not email or "@" not in email:
+        return None
+    return email.split("@", 1)[1].lower()
+
+
+def main() -> int:
+    args = parse_args()
+    try:
+        record = fetch_json(args.url)
+        validate_record(record)
+        summary = summarize_record(record)
+        logger.info("Record summary: %s", json.dumps(summary, ensure_ascii=False))
+        return 0
+    except (ValueError, json.JSONDecodeError, requests.RequestException) as e:
+        logger.error("Error processing record: %s", e)
+        return 2
+    except Exception as e:  # pragma: no cover
+        logger.exception("Unexpected error")
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
