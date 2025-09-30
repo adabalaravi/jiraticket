@@ -30,17 +30,19 @@ def validate_jira_url(jira_url: str) -> str:
     """
     Ensure JIRA URL is safe to use.
     - Must start with http/https
-    - Basic sanity checks to prevent SSRF misuse
+    - Must include a hostname
+    - Restrict to Atlassian-hosted domains to prevent SSRF
     """
     parsed = urlparse(jira_url)
     if parsed.scheme not in ("http", "https"):
         raise ValueError(f"Invalid JIRA URL scheme: {parsed.scheme}")
     if not parsed.netloc:
         raise ValueError("JIRA URL must include a hostname")
-    # Optional hardening: enforce domain restriction
-    # if not parsed.netloc.endswith("atlassian.net"):
-    #     raise ValueError(f"JIRA URL {jira_url} not allowed")
+    # Enforce domain restriction (adjust if using self-hosted JIRA)
+    if not parsed.netloc.endswith("atlassian.net"):
+        raise ValueError(f"JIRA URL {jira_url} not allowed – must be Atlassian-hosted")
     return jira_url.rstrip("/")
+
 
 # ------------------ Helpers ------------------ #
 def sev_index(sev: str) -> int:
