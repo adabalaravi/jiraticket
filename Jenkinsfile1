@@ -68,15 +68,20 @@ pipeline {
       }
     }
 
-    stage('Snyk Scan') {
-      steps {
-        powershell '''
-          snyk code test --sarif --sarif-file-output=snyk-code.sarif
-          if ($LASTEXITCODE -ne 0) { Write-Host "Continuing..." }
-          snyk test --file=requirements.txt --json-file-output=snyk-oss.json
-          if ($LASTEXITCODE -ne 0) { Write-Host "Continuing..." }
-        '''
-      }
+    stage('Snyk Scans') {
+  steps {
+    powershell '''
+      $env:Path = "C:\\Program Files\\nodejs;" + $env:Path
+
+      $nodePath    = "C:\\Program Files\\nodejs\\node.exe"
+      $npmPath     = "C:\\Program Files\\nodejs\\npm.cmd"
+      $snykPath    = "C:\\Users\\DELL\\AppData\\Roaming\\npm\\snyk.cmd"
+      $pythonPath  = "C:\\Users\\DELL\\AppData\\Local\\Programs\\Python\\Python312\\python.exe"
+      & $snykPath code test --sarif --sarif-file-output=snyk-code.sarif
+      & $snykPath test --file=requirements.txt --json-file-output=snyk-oss.json
+
+    '''
+    }
     }
 
     stage('Create/Update JIRA Ticket if Needed') {

@@ -19,8 +19,28 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 import requests
+from urllib.parse import urlparse
 
 SEV_ORDER = ["low", "medium", "high", "critical"]
+
+
+
+# ------------------ Helpers ------------------ #
+def validate_jira_url(jira_url: str) -> str:
+    """
+    Ensure JIRA URL is safe to use.
+    - Must start with http/https
+    - Basic sanity checks to prevent SSRF misuse
+    """
+    parsed = urlparse(jira_url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Invalid JIRA URL scheme: {parsed.scheme}")
+    if not parsed.netloc:
+        raise ValueError("JIRA URL must include a hostname")
+    # Optional hardening: enforce domain restriction
+    # if not parsed.netloc.endswith("atlassian.net"):
+    #     raise ValueError(f"JIRA URL {jira_url} not allowed")
+    return jira_url.rstrip("/")
 
 # ------------------ Helpers ------------------ #
 def sev_index(sev: str) -> int:
@@ -160,6 +180,7 @@ def main():
     ap.add_argument("--commit", default="")
     ap.add_argument("--repo", default="")
     args = ap.parse_args()
+    args.jira_url = validate_jira_url(args.jira_url)
 
     oss = load_json(Path(args.oss))
     sarif = load_json(Path(args.sarif))
