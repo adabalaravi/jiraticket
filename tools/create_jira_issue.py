@@ -86,12 +86,16 @@ def summarize(findings: List[Dict[str, Any]], limit: int = 10) -> str:
         lines.append(f"... and {extra} more.")
     return "\n".join(lines)
 
+def load_json(path: Path):
+    """Load JSON file with safe encoding fallback."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except UnicodeDecodeError:
+        # Retry with UTF-16 (common when BOM is present)
+        with open(path, "r", encoding="utf-16") as f:
+            return json.load(f)
 
-def load_json(path: Path) -> Any:
-    if not path.exists():
-        return None
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
 
 # ------------------ Parsers ------------------ #
 def parse_oss(data: Dict[str, Any], threshold: str) -> List[Dict[str, Any]]:
