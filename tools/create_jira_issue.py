@@ -162,7 +162,7 @@ def jira_headers(email: str, token: str) -> Dict[str, str]:
 
 
 def jira_search(url: str, headers: Dict[str, str], jql: str) -> List[Dict[str, Any]]:
-    resp = requests.get(safe_join(url, "/rest/api/3/search"), headers={"Authorization": headers["Authorization"], "Accept": "application/json"}, params={"jql": jql, "maxResults": 5}, timeout=30)
+    resp = requests.get(safe_join(url, "/rest/api/3/search/jql"), headers={"Authorization": headers["Authorization"], "Accept": "application/json"}, params={"jql": jql, "maxResults": 5}, timeout=30)
     resp.raise_for_status()
     return resp.json().get("issues", [])
 
