@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest   # switched from windows-latest
 
     env:
       JIRA_URL: https://ravindradevops25.atlassian.net
@@ -34,22 +34,20 @@ jobs:
         uses: snyk/actions/setup@master
 
       - name: Verify Tools
-        shell: pwsh
         run: |
-          Write-Output "[DEBUG] Checking tools..."
+          echo "[DEBUG] Checking tools..."
           node --version
           npm --version
           python --version
           snyk --version
-          Write-Output "[DEBUG] Tools verified successfully."
+          echo "[DEBUG] Tools verified successfully."
 
       - name: Install Python Dependencies
-        shell: pwsh
         run: |
-          Write-Output "[DEBUG] Installing dependencies..."
+          echo "[DEBUG] Installing dependencies..."
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install -r requirements.txt
-          Write-Output "[DEBUG] Dependencies installed successfully."
+          echo "[DEBUG] Dependencies installed successfully."
 
       - name: Snyk Auth
         env:
@@ -60,24 +58,24 @@ jobs:
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
-          snyk test --json > snyk-results.json || exit 0
+          echo "[DEBUG] Running Snyk scan..."
+          snyk test --json > snyk-results.json || true
           echo "[DEBUG] Snyk scan completed."
 
       - name: Parse Results and Create JIRA Ticket
-        shell: pwsh
         env:
           JIRA_USER: ${{ secrets.JIRA_USER }}
           JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
         run: |
-          $results = Get-Content snyk-results.json | ConvertFrom-Json
-          if ($results.vulnerabilities.Count -gt 0) {
+          echo "[DEBUG] Checking snyk results..."
+          if jq -e '.vulnerabilities | length > 0' snyk-results.json > /dev/null; then
             echo "[DEBUG] Vulnerabilities found, creating Jira ticket..."
-            python tools/create_jira_issue.py `
-              --jira-url $env:JIRA_URL `
-              --project $env:JIRA_PROJECT_KEY `
-              --issuetype $env:JIRA_ISSUE_TYPE `
-              --severity $env:SEVERITY_THRESHOLD `
+            python tools/create_jira_issue.py \
+              --jira-url "$JIRA_URL" \
+              --project "$JIRA_PROJECT_KEY" \
+              --issuetype "$JIRA_ISSUE_TYPE" \
+              --severity "$SEVERITY_THRESHOLD" \
               --input snyk-results.json
-          } else {
+          else
             echo "[DEBUG] No vulnerabilities found, skipping Jira ticket creation."
-          }
+          fi
