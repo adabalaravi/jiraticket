@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest   # Jenkins used Windows with PowerShell
+    runs-on: windows-latest
 
     env:
       JIRA_URL: https://ravindradevops25.atlassian.net
@@ -20,30 +20,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check Tools
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Snyk CLI
+        uses: snyk/actions/setup@master
+
+      - name: Verify Tools
         shell: pwsh
         run: |
-          Write-Output "[DEBUG] Starting tool verification..."
-          $nodePath    = "C:\\Program Files\\nodejs\\node.exe"
-          $npmPath     = "C:\\Program Files\\nodejs\\npm.cmd"
-          $snykPath    = "$env:USERPROFILE\\AppData\\Roaming\\npm\\snyk.cmd"
-          $pythonPath  = "C:\\hostedtoolcache\\windows\\Python\\3.12.0\\x64\\python.exe"
-
-          if (-Not (Test-Path $nodePath))   { Write-Error "Node.js not found"; exit 1 }
-          if (-Not (Test-Path $npmPath))    { Write-Error "npm not found"; exit 1 }
-          if (-Not (Test-Path $snykPath))   { Write-Error "Snyk not found"; exit 1 }
-          if (-Not (Test-Path $pythonPath)) { Write-Error "Python not found"; exit 1 }
-
-          & $nodePath --version
-          & $npmPath --version
-          & $pythonPath --version
-          & $snykPath --version
-          Write-Output "[DEBUG] Tool verification completed successfully."
+          Write-Output "[DEBUG] Checking tools..."
+          node --version
+          npm --version
+          python --version
+          snyk --version
+          Write-Output "[DEBUG] Tools verified successfully."
 
       - name: Install Python Dependencies
         shell: pwsh
         run: |
-          Write-Output "[DEBUG] Installing Python dependencies..."
+          Write-Output "[DEBUG] Installing dependencies..."
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install -r requirements.txt
           Write-Output "[DEBUG] Dependencies installed successfully."
@@ -51,20 +54,14 @@ jobs:
       - name: Snyk Auth
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        shell: pwsh
-        run: |
-          Write-Output "[DEBUG] Starting Snyk auth..."
-          snyk auth $env:SNYK_TOKEN
-          Write-Output "[DEBUG] Auth success."
+        run: snyk auth $SNYK_TOKEN
 
       - name: Run Snyk Scan
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        shell: pwsh
         run: |
-          Write-Output "[DEBUG] Running Snyk scan..."
           snyk test --json > snyk-results.json || exit 0
-          Write-Output "[DEBUG] Snyk scan completed."
+          echo "[DEBUG] Snyk scan completed."
 
       - name: Parse Results and Create JIRA Ticket
         shell: pwsh
@@ -72,10 +69,9 @@ jobs:
           JIRA_USER: ${{ secrets.JIRA_USER }}
           JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
         run: |
-          Write-Output "[DEBUG] Checking snyk results..."
           $results = Get-Content snyk-results.json | ConvertFrom-Json
           if ($results.vulnerabilities.Count -gt 0) {
-            Write-Output "[DEBUG] Vulnerabilities found, creating Jira ticket..."
+            echo "[DEBUG] Vulnerabilities found, creating Jira ticket..."
             python tools/create_jira_issue.py `
               --jira-url $env:JIRA_URL `
               --project $env:JIRA_PROJECT_KEY `
@@ -83,5 +79,5 @@ jobs:
               --severity $env:SEVERITY_THRESHOLD `
               --input snyk-results.json
           } else {
-            Write-Output "[DEBUG] No vulnerabilities found, skipping Jira ticket creation."
+            echo "[DEBUG] No vulnerabilities found, skipping Jira ticket creation."
           }
